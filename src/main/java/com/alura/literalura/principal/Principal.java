@@ -74,47 +74,55 @@ public class Principal {
         System.out.println("Ingrese el nombre del libro que desea buscar:");
         var tituloLibro = teclado.nextLine();
 
-        var json = consumoAPI.obtenerDatos(URL_BASE + "?search=" + tituloLibro.replace(" ", "+"));
-        var datosBusqueda = conversor.obtenerDatos(json, DatosGutendex.class);
+        try {
+            var json = consumoAPI.obtenerDatos(URL_BASE + "?search=" + tituloLibro.replace(" ", "+"));
+            var datosBusqueda = conversor.obtenerDatos(json, DatosGutendex.class);
 
-        Optional<DatosLibro> libroBuscado = datosBusqueda.resultados().stream()
-                .filter(l -> l.titulo().toUpperCase().contains(tituloLibro.toUpperCase()))
-                .findFirst();
+            Optional<DatosLibro> libroBuscado = datosBusqueda.resultados().stream()
+                    .filter(l -> l.titulo().toUpperCase().contains(tituloLibro.toUpperCase()))
+                    .findFirst();
 
-        if (libroBuscado.isPresent()) {
-            DatosLibro datos = libroBuscado.get();
+            if (libroBuscado.isPresent()) {
+                DatosLibro datos = libroBuscado.get();
 
-            // Verificamos si el libro ya existe en nuestra DB para no duplicar
-            Optional<Libro> libroExistente = libroRepository.findByTituloContainsIgnoreCase(datos.titulo());
-            if (libroExistente.isPresent()){
-                System.out.println("El libro ya está registrado en la base de datos: " + datos.titulo());
-                return; // Terminamos aquí si ya existe
-            }
+                // --- VALIDACIÓN DE DUPLICADOS MEJORADA ---
+                // Usamos findByTituloIgnoreCase para ser más precisos
+                Optional<Libro> libroExistente = libroRepository.findByTituloIgnoreCase(datos.titulo());
 
-            // LÓGICA DE AUTOR (Evitar duplicados)
-            DatosAutor datosAutor = datos.autor().get(0); // Tomamos el primer autor
-            Autor autor;
+                if (libroExistente.isPresent()) {
+                    System.out.println("\n-----------------------------------------");
+                    System.out.println("⚠ ALERTA: Este libro ya existe en tu BD ⚠");
+                    System.out.println("Título: " + datos.titulo());
+                    System.out.println("-----------------------------------------\n");
+                    return; // Volvemos al menú sin guardar nada
+                }
 
-            // Buscamos si el autor ya existe en la DB
-            Optional<Autor> autorDb = autorRepository.findByNombre(datosAutor.nombre());
+                // --- LÓGICA DE GUARDADO ---
+                DatosAutor datosAutor = datos.autor().get(0);
+                Autor autor;
 
-            if (autorDb.isPresent()) {
-                // Si existe, usamos el que ya está en la DB
-                autor = autorDb.get();
+                Optional<Autor> autorDb = autorRepository.findByNombre(datosAutor.nombre());
+                if (autorDb.isPresent()) {
+                    autor = autorDb.get();
+                } else {
+                    autor = autorRepository.save(new Autor(datosAutor));
+                }
+
+                Libro libro = new Libro(datos);
+                libro.setAutor(autor);
+                libroRepository.save(libro);
+
+                System.out.println("\n--- LIBRO GUARDADO EXITOSAMENTE ---");
+                System.out.println(libro);
             } else {
-                // Si no existe, creamos uno nuevo y lo guardamos
-                autor = autorRepository.save(new Autor(datosAutor));
+                System.out.println("Libro no encontrado en la API de Gutendex");
             }
-
-            // Guardamos el libro vinculado al autor
-            Libro libro = new Libro(datos);
-            libro.setAutor(autor);
-            libroRepository.save(libro);
-
-            System.out.println(libro);
-            System.out.println("¡Libro guardado con éxito!");
-        } else {
-            System.out.println("Libro no encontrado");
+        } catch (Exception e) {
+            // SI ALGO FALLA, ENTRARÁ AQUÍ EN LUGAR DE "PEGARSE"
+            System.out.println("\n**************************************");
+            System.out.println("OCURRIÓ UN ERROR AL GUARDAR:");
+            System.out.println(e.getMessage());
+            System.out.println("**************************************\n");
         }
     }
 
